@@ -377,13 +377,17 @@ async def main() -> None:
     """Настраивает и запускает бота с вебхуком."""
     
     # Создаём экземпляр Application
-    # Убрали .token(TOKEN) т.к. он будет использоваться ниже
     application = Application.builder().token(TOKEN).build()
 
     # Добавляем обработчики команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("newgame", new_game))
     application.add_handler(CallbackQueryHandler(button_click))
+
+    # --- ВАЖНО: Инициализируем приложение ПЕРЕД установкой вебхука и запуском сервера ---
+    logger.info("Инициализация приложения...")
+    await application.initialize()
+    logger.info("Приложение инициализировано.")
 
     # Настройка вебхука при старте
     try:
@@ -409,6 +413,10 @@ async def main() -> None:
             body = await request.json()
             update = Update.de_json(body, application.bot)
             logger.debug(f"Получено обновление: {update}")
+            # Убедимся, что приложение готово к обработке
+            if not application.initialized:
+                 logger.error("Приложение не инициализировано перед обработкой обновления!")
+                 return Response(status_code=HTTPStatus.INTERNAL_SERVER_ERROR)
             await application.process_update(update)
             return Response(status_code=HTTPStatus.OK)
         except Exception as e:
@@ -430,19 +438,31 @@ async def main() -> None:
     )
     server = uvicorn.Server(config)
     
+    # --- ВАЖНО: Запускаем обработку завершения работы ПЕРЕД запуском сервера --- 
+    # Это позволит корректно удалить вебхук при остановке
+    application.start = False # Говорим PTB, что мы не запускаем его стандартный цикл
+    await application.start() # Запускает фоновые задачи, если они есть
+    
     logger.info(f"Запуск веб-сервера на {config.host}:{config.port}...")
     await server.serve()
+    
+    # Код ниже будет выполнен после остановки сервера (например, CTRL+C или сигнал от Render)
+    logger.info("Остановка приложения...")
+    await application.stop()
+    logger.info("Приложение остановлено.")
+    
+    # Удаление вебхука при завершении (рекомендуется)
+    try:
+       logger.info("Удаление вебхука...")
+       # Проверяем, был ли бот инициализирован, прежде чем удалять
+       if application.bot:
+           await application.bot.delete_webhook()
+           logger.info("Вебхук удален.")
+       else:
+           logger.warning("Экземпляр бота не был создан, удаление вебхука пропущено.")
+    except Exception as e:
+       logger.error(f"Ошибка удаления вебхука: {e}")
 
-    # Код ниже не будет выполнен при использовании server.serve(), 
-    # но нужен для корректного завершения при ручном прерывании
-    # или если бы мы не использовали server.serve() напрямую.
-    # Удаление вебхука при завершении (не обязательно, но хорошая практика)
-    # try:
-    #    logger.info("Удаление вебхука...")
-    #    await application.bot.delete_webhook()
-    #    logger.info("Вебхук удален.")
-    # except Exception as e:
-    #    logger.error(f"Ошибка удаления вебхука: {e}")
 
 if __name__ == "__main__":
     # Запускаем асинхронную функцию main
