@@ -413,10 +413,6 @@ async def main() -> None:
             body = await request.json()
             update = Update.de_json(body, application.bot)
             logger.debug(f"Получено обновление: {update}")
-            # Убедимся, что приложение готово к обработке
-            if not application.initialized:
-                 logger.error("Приложение не инициализировано перед обработкой обновления!")
-                 return Response(status_code=HTTPStatus.INTERNAL_SERVER_ERROR)
             await application.process_update(update)
             return Response(status_code=HTTPStatus.OK)
         except Exception as e:
