@@ -10,7 +10,7 @@ from datetime import datetime, timedelta # Added for job queue scheduling
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, Message
 # Убедимся, что используется правильный Application
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, JobQueue
 from telegram.helpers import escape_markdown
 import telegram # Added for error types
 
@@ -102,10 +102,10 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Отправляем сообщение с игровым полем
     try:
         sent_message = await update.message.reply_text(
-            f"🎲 *Новая игра началась!* 🎲\\n\\n"
-            f"👤 {escaped_username} играет за {get_symbol_emoji(first_player)}\\n"
-            f"⏳ Ожидаем второго игрока...\\n\\n"
-            f"*Первым ходит*: {get_symbol_emoji(first_player)}\\n\\n"
+            f"🎲 *Новая игра началась!* 🎲\n\n"
+            f"👤 {escaped_username} играет за {get_symbol_emoji(first_player)}\n"
+            f"⏳ Ожидаем второго игрока...\n\n"
+            f"*Первым ходит*: {get_symbol_emoji(first_player)}\n\n"
             f"⏱️ *Время на игру*: 90 секунд", # Добавили инфо о времени
             reply_markup=get_keyboard(chat_id),
             parse_mode="Markdown"
@@ -201,7 +201,14 @@ def check_winner(board):
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик нажатия на кнопки игрового поля или 'Новая игра'"""
     query = update.callback_query
-    await query.answer() 
+    # Отвечаем на запрос сразу, чтобы убрать "часики", но ловим ошибку, если он устарел
+    try:
+        await query.answer()
+    except telegram.error.BadRequest as e:
+        # Если запрос слишком старый, просто логируем и продолжаем
+        # Остальные проверки ниже должны обработать устаревшее состояние игры
+        logger.warning(f"Failed to answer callback query (likely too old): {e}")
+        # Не выходим, так как нужно проверить состояние игры дальше
 
     data = query.data
     chat_id = update.effective_chat.id
@@ -262,10 +269,10 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         try:
             await query.edit_message_text(
-                f"🎲 *Новая игра началась!* 🎲\\n\\n"
-                f"👤 {escaped_initiator_username} играет за {get_symbol_emoji(first_player)}\\n"
-                f"⏳ Ожидаем второго игрока...\\n\\n"
-                f"*Первым ходит*: {get_symbol_emoji(first_player)}\\n\\n"
+                f"🎲 *Новая игра началась!* 🎲\n\n"
+                f"👤 {escaped_initiator_username} играет за {get_symbol_emoji(first_player)}\n"
+                f"⏳ Ожидаем второго игрока...\n\n"
+                f"*Первым ходит*: {get_symbol_emoji(first_player)}\n\n"
                 f"⏱️ *Время на игру*: 90 секунд", # Добавили инфо о времени
                 reply_markup=get_keyboard(chat_id),
                 parse_mode="Markdown"
@@ -498,8 +505,8 @@ async def game_timeout(context: ContextTypes.DEFAULT_TYPE) -> None:
         game_data['timeout_job'] = None # Ссылка на джобу больше не нужна
 
         timeout_message = (
-            f"⏰ *Время вышло!* ⏰\\n\\n"
-            f"Игра отменена, так как никто не успел победить за 90 секунд.\\n\\n"
+            f"⏰ *Время вышло!* ⏰\n\n"
+            f"Игра отменена, так как никто не успел победить за 90 секунд.\n\n"
             f"Нажмите кнопку ниже, чтобы начать новую игру."
         )
 
@@ -526,8 +533,11 @@ async def game_timeout(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def main() -> None:
     """Настраивает и запускает бота с вебхуком."""
     
-    # Создаём экземпляр Application
-    application = Application.builder().token(TOKEN).build()
+    # --- Создаем JobQueue --- 
+    job_queue = JobQueue()
+
+    # Создаём экземпляр Application, передавая job_queue
+    application = Application.builder().token(TOKEN).job_queue(job_queue).build()
 
     # Добавляем обработчики команд
     application.add_handler(CommandHandler("start", start))
