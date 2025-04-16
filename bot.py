@@ -349,17 +349,10 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # --- Проверка: Существует ли игра для этого чата? ---
     if chat_id not in games:
-        logger.warning(f"Button click received for non-existent game in chat {chat_id}. Data: {data}")
-        await query.answer("🤔 Эта игра уже не существует или была отменена.", show_alert=True)
-        # Попытка удалить "мертвое" сообщение с кнопками, если оно есть
-        if message_id:
-            try:
-                await context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
-                logger.info(f"Removed keyboard from potentially stale game message {message_id} in chat {chat_id}")
-            except telegram.error.BadRequest:
-                 logger.warning(f"Could not remove keyboard from message {message_id} in chat {chat_id} (likely already deleted or no markup).")
-            except Exception as e:
-                logger.error(f"Error removing keyboard from message {message_id} in chat {chat_id}: {e}")
+        logger.warning(f"Button click received for potentially non-existent or starting game in chat {chat_id}. Data: {data}")
+        # НЕ удаляем клавиатуру здесь, так как игра может быть в процессе создания
+        # Только сообщаем пользователю
+        await query.answer("🤔 Эта игра уже не существует или находится в процессе создания.", show_alert=True)
         return
 
     game_data = games[chat_id]
