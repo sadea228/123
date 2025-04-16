@@ -110,9 +110,11 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Обработчик нажатия на кнопки игрового поля или управления игрой."""
     query = update.callback_query
     try:
+        # Пытаемся ответить на callback query как можно раньше
         await query.answer()
     except telegram.error.BadRequest as e:
-        logger.warning(f"Failed to answer callback query (likely too old): {e}")
+        # Игнорируем ошибку, если query слишком старый
+        logger.warning(f"Failed to answer callback query (likely too old or already answered): {e}")
 
     data = query.data
     chat_id = update.effective_chat.id
@@ -120,31 +122,30 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     message = query.message # Сообщение, к которому прикреплена кнопка
     message_id = message.message_id if message else None
 
+    # --- Проверка 1: Игра для этого чата вообще существует? ---
     if chat_id not in games:
-        logger.warning(f"Button click received for non-existent game in chat {chat_id}. Data: {data}")
-        # Не отвечаем алертом, т.к. query.answer уже мог не сработать
-        # Попытка удалить кнопки со старого сообщения
-        if message_id:
-            try:
-                await context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
-                logger.info(f"Removed keyboard from stale game message {message_id} in chat {chat_id} (game not found).")
-            except Exception as e:
-                 logger.warning(f"Could not remove keyboard from message {message_id} in chat {chat_id} (game not found): {e}")
-        return
+        logger.warning(f"Button click received for potentially non-existent or starting game in chat {chat_id}. Data: {data}. Message ID: {message_id}")
+        # НЕ удаляем клавиатуру здесь, так как игра может быть в процессе создания.
+        # Просто выходим, если игры точно нет в данный момент.
+        # Если клик был по кнопке реально старого сообщения, клавиатура
+        # должна была быть удалена при завершении той игры или по таймауту.
+        return # Выходим, не трогая разметку
 
+    # --- Если игра существует (chat_id in games) ---
     game_data = games[chat_id]
     game_message_id = game_data.get('message_id')
     game_theme_emojis = game_data.get("theme_emojis", THEMES[DEFAULT_THEME_KEY])
 
-    # Проверка на нажатие кнопки на устаревшем сообщении
+    # --- Проверка 2: Клик был по актуальному сообщению игры? ---
     if message_id and game_message_id and message_id != game_message_id:
-        logger.warning(f"Button click on OLD message ({message_id}, expected {game_message_id}) in chat {chat_id}. Data: {data}. User: {user_id}")
-        # Не отвечаем алертом, просто удаляем кнопки
+        logger.warning(f"Button click on OLD message ({message_id}, current game msg is {game_message_id}) in chat {chat_id}. Data: {data}. User: {user_id}")
+        # Это точно клик по старому сообщению, удаляем его клавиатуру
         try:
             await context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+            logger.info(f"Removed keyboard from old game message {message_id} in chat {chat_id}.")
         except Exception as e:
-             logger.warning(f"Could not remove keyboard from old message {message_id} in chat {chat_id}: {e}")
-        return
+            logger.warning(f"Could not remove keyboard from old message {message_id} in chat {chat_id}: {e}")
+        return # Выходим
 
     # --- Обработка разных callback_data --- 
 
