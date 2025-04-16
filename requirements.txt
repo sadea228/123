@@ -1,0 +1,3 @@
+python-telegram-bot[job-queue]>=20.0  # Убедимся, что версия поддерживает async/await и вебхуки
+fastapi>=0.95.0         # Для создания веб-сервера
+uvicorn[standard]>=0.20.0 # Для запуска FastAPI приложения (standard включает доп. зависимости) 
