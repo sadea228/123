@@ -112,11 +112,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /newgame - создаёт новую игру"""
-    user = update.effective_user
-    user_id = user.id
-    username = user.username or f"player_{user_id}"
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    username = update.effective_user.username or f"player_{user_id}"
     # Проверка на бан по username или user_id
-    if str(user_id) in banned_users or (user.username and user.username in banned_users):
+    if str(user_id) in banned_users or (update.effective_user.username and update.effective_user.username in banned_users):
         await update.message.reply_text("⛔ Вы забанены и не можете начинать игры.")
         return
     # --- Проверка: не бот ли инициатор ---
@@ -127,12 +127,27 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # --- Проверка на активную игру ---
-    if user_id in games and not games[user_id].get('game_over', True):
-         await update.message.reply_text(
-             "⏳ В этом чате уже идет игра! Дождитесь ее завершения или отмены.",
-             reply_to_message_id=games[user_id].get('message_id') # Reply to the game message if possible
-         )
-         logger.warning(f"User {username} ({user_id}) tried to start a new game in chat {user_id} while another is active.")
+    if chat_id in games and not games[chat_id].get('game_over', True):
+         game_message_id = games[chat_id].get('message_id')
+         warning_text = "⏳ В этом чате уже идет игра! Дождитесь ее завершения или отмены."
+         try:
+             await update.message.reply_text(
+                 warning_text,
+                 reply_to_message_id=game_message_id # Reply to the game message if possible
+             )
+         except telegram.error.BadRequest as e:
+             if "Message to be replied not found" in str(e):
+                 logger.warning(f"Original game message {game_message_id} not found in chat {chat_id}. Sending new message.")
+                 await update.message.reply_text(warning_text) # Send as a new message
+             else:
+                 logger.error(f"BadRequest when trying to reply in new_game: {e}")
+                 # Можно отправить сообщение об ошибке пользователю или просто проигнорировать
+                 await update.message.reply_text("Произошла ошибка при попытке начать новую игру.")
+         except Exception as e:
+             logger.error(f"Unexpected error when trying to reply in new_game: {e}")
+             await update.message.reply_text("Произошла непредвиденная ошибка.")
+
+         logger.warning(f"User {username} ({user_id}) tried to start a new game in chat {chat_id} while another is active.")
          return
 
     # --- Отмена старого таймера и удаление старой игры ---
