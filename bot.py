@@ -151,16 +151,16 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
          return
 
     # --- Отмена старого таймера и удаление старой игры ---
-    if user_id in games: # Добавляем проверку на существование chat_id
-        old_job = games[user_id].get('timeout_job')
+    if chat_id in games: # Используем chat_id вместо user_id
+        old_job = games[chat_id].get('timeout_job')
         if old_job:
             try:
                 old_job.schedule_removal()
-                logger.info(f"Removed previous timeout job for chat {user_id} before starting new game.")
+                logger.info(f"Removed previous timeout job for chat {chat_id} before starting new game.")
             except Exception as e: # Ловим любые ошибки, включая JobLookupError
-                logger.warning(f"Could not remove previous timeout job for chat {user_id} (maybe already removed or finished?): {e}")
-        del games[user_id] # Удаляем данные старой игры (теперь безопасно)
-        logger.info(f"Removed old game data for chat {user_id} before starting new game.")
+                logger.warning(f"Could not remove previous timeout job for chat {chat_id} (maybe already removed or finished?): {e}")
+        del games[chat_id] # Удаляем данные старой игры (теперь безопасно)
+        logger.info(f"Removed old game data for chat {chat_id} before starting new game.")
 
     # Определяем тему для игры на основе выбора первого игрока
     initiator_theme_key = context.user_data.get('chosen_theme', DEFAULT_THEME_KEY)
@@ -188,7 +188,7 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "timeout_job": None, # Добавлено для хранения задачи тайм-аута
         "theme_emojis": game_theme_emojis # Добавлено для хранения эмодзи текущей игры
     }
-    games[user_id] = game_data
+    games[chat_id] = game_data
 
     # Отправляем сообщение с игровым полем
     try:
@@ -202,31 +202,31 @@ async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"⏳ Ожидаем второго игрока...\n\n"
             f"*Первым ходит*: {first_player_emoji}\n\n"
             f"⏱️ *Время на игру*: 90 секунд", # Добавили инфо о времени
-            reply_markup=get_keyboard(user_id),
+            reply_markup=get_keyboard(chat_id),
             parse_mode="Markdown"
         )
         game_data['message_id'] = sent_message.message_id
-        logger.info(f"New game started by {username} ({user_id}) in chat {user_id}. Message ID: {sent_message.message_id}")
+        logger.info(f"New game started by {username} ({user_id}) in chat {chat_id}. Message ID: {sent_message.message_id}")
 
         # --- Запускаем таймер ---
-        job_context = {'chat_id': user_id, 'message_id': sent_message.message_id}
+        job_context = {'chat_id': chat_id, 'message_id': sent_message.message_id}
         timeout_job = context.job_queue.run_once(
             game_timeout,
             when=timedelta(seconds=90),
             data=job_context,
-            name=f"game_timeout_{user_id}"
+            name=f"game_timeout_{chat_id}"
         )
         game_data['timeout_job'] = timeout_job
-        logger.info(f"Scheduled timeout job for game in chat {user_id}")
+        logger.info(f"Scheduled timeout job for game in chat {chat_id}")
 
     except telegram.error.BadRequest as e:
-         logger.error(f"Failed to send new game message in chat {user_id}: {e}")
+         logger.error(f"Failed to send new game message in chat {chat_id}: {e}")
          # Если не удалось отправить сообщение, удаляем игру
-         del games[user_id]
+         del games[chat_id]
     except Exception as e:
-        logger.error(f"Unexpected error starting game in chat {user_id}: {e}", exc_info=True)
-        if user_id in games:
-            del games[user_id]
+        logger.error(f"Unexpected error starting game in chat {chat_id}: {e}", exc_info=True)
+        if chat_id in games:
+            del games[chat_id]
 
 def get_symbol_emoji(symbol, game_theme_emojis: dict):
     """Возвращает символ с эмодзи для отображения, используя тему текущей игры."""
